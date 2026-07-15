@@ -4,7 +4,11 @@ backend/dist
 backend/data-dev
 backend/.env
 
-# iOS / Xcode
+# iOS / Theos
+ios/.theos/
+ios/packages/
+
+# iOS / Xcode (si jamais ouvert sur un Mac)
 ios/Walkie.xcodeproj/project.xcworkspace/xcuserdata/
 ios/Walkie.xcodeproj/xcuserdata/
 ios/**/*.xcuserstate

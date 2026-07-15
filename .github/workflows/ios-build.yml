@@ -1,0 +1,61 @@
+name: Walkie iOS CI
+
+on:
+  push:
+    branches:
+      - main
+    tags:
+      - "ios-v*"
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-build.yml"
+  pull_request:
+    branches:
+      - main
+    paths:
+      - "ios/**"
+      - ".github/workflows/ios-build.yml"
+
+jobs:
+  build_ipa:
+    name: Build IPA with Theos
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      - name: Pull Theos image
+        run: docker pull docker.io/nem0oo/theos
+      # Le runner GitHub a l'uid 1001 mais l'utilisateur builder de l'image a
+      # l'uid 1000 et doit pouvoir écrire dans le workspace monté
+      - name: Make workspace writable by builder
+        run: chmod -R a+rwX ${{ github.workspace }}
+      # Le nom de l'.ipa généré par theos vient du champ Version du fichier `control`,
+      # pas du tag git : on l'aligne sur le tag pour que la release porte ce nom.
+      - name: Set package version from tag
+        if: startsWith(github.ref, 'refs/tags/ios-v')
+        run: |
+          VERSION="${GITHUB_REF_NAME#ios-v}"
+          sed -i "s/^Version:.*/Version: ${VERSION}/" ios/control
+      - name: Build package
+        run: |
+          docker run --rm \
+            -v ${{ github.workspace }}:/home/builder/code \
+            -w /home/builder/code/ios \
+            docker.io/nem0oo/theos \
+            make package PACKAGE_FORMAT=ipa FINALPACKAGE=1
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: Walkie-${{ github.sha }}
+          path: ios/packages/*.ipa
+          if-no-files-found: error
+      - name: Publish release
+        if: startsWith(github.ref, 'refs/tags/ios-v')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${GITHUB_REF_NAME}" ios/packages/*.ipa \
+            --title "Walkie ${GITHUB_REF_NAME}" \
+            --generate-notes

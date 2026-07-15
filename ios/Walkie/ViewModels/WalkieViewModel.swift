@@ -32,7 +32,7 @@ final class WalkieViewModel: ObservableObject {
         audio.startKeepAlive()
 
         webSocket.onMessage = { [weak self] message in
-            Task { @MainActor in self?.handleIncoming(message) }
+            Task { @MainActor in await self?.handleIncoming(message) }
         }
         webSocket.$state
             .receive(on: DispatchQueue.main)

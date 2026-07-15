@@ -1,0 +1,9 @@
+Package: fr.gcourtot.walkie
+Name: Walkie
+Version: 0.0.1
+Architecture: iphoneos-arm
+Description: Talkie-walkie personnel auto-hébergé
+Maintainer: nem0oo
+Author: nem0oo
+Section: Utilities
+Depends: firmware (>= 16.0)
