@@ -1,0 +1,31 @@
+# À copier dans /home/nem0oo/homelab-services/walkie/ (voir README.md pour les
+# instructions de déploiement complètes). Suit le pattern des autres services du repo
+# homelab-services (Leitner, training, stalwart) : réseau externe reseau_interne,
+# watchtower, healthcheck wget.
+services:
+  walkie:
+    image: nem0oo/walkie:latest
+    container_name: walkie
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      - VIRTUAL_HOST=walkie.gcourtot.fr
+      - VIRTUAL_PORT=3000
+      - LETSENCRYPT_HOST=walkie.gcourtot.fr
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+    labels:
+      - com.centurylinklabs.watchtower.enable=true
+    networks:
+      - frontend
+
+networks:
+  frontend:
+    name: reseau_interne
+    external: true

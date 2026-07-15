@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Envoyer un message vocal</title>
+  <link rel="stylesheet" href="/style.css" />
+</head>
+<body>
+  <main class="panel">
+    <h1>Message vocal</h1>
+
+    <section id="state-loading">
+      <p>Chargement…</p>
+    </section>
+
+    <section id="state-invalid" hidden>
+      <p>Lien invalide ou expiré.</p>
+    </section>
+
+    <section id="state-ready" hidden>
+      <label class="sender-field">
+        Votre nom (optionnel)
+        <input type="text" id="sender-input" maxlength="40" placeholder="Anonyme" />
+      </label>
+
+      <div class="recorder">
+        <button id="record-btn" type="button" class="record-btn">Enregistrer</button>
+        <p id="timer" class="timer" hidden>0:00 / 2:00</p>
+      </div>
+
+      <audio id="preview" hidden controls></audio>
+
+      <div id="review-actions" class="actions" hidden>
+        <button id="send-btn" type="button" class="primary">Envoyer</button>
+        <button id="discard-btn" type="button">Recommencer</button>
+      </div>
+    </section>
+
+    <section id="state-uploading" hidden>
+      <p>Envoi en cours…</p>
+    </section>
+
+    <section id="state-sent" hidden>
+      <p>Message envoyé !</p>
+      <button id="record-again-btn" type="button">Envoyer un autre message</button>
+    </section>
+
+    <section id="state-error" hidden>
+      <p id="error-message">Une erreur est survenue.</p>
+      <button id="retry-btn" type="button">Réessayer</button>
+    </section>
+  </main>
+
+  <script src="/app.js"></script>
+</body>
+</html>

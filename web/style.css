@@ -1,0 +1,121 @@
+:root {
+  color-scheme: light dark;
+  --bg: #111318;
+  --panel: #1b1e26;
+  --text: #f2f3f5;
+  --muted: #9aa0ab;
+  --accent: #4f8cff;
+  --danger: #ff5c5c;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, system-ui, sans-serif;
+  padding: 16px;
+}
+
+.panel {
+  width: 100%;
+  max-width: 420px;
+  background: var(--panel);
+  border-radius: 16px;
+  padding: 24px;
+}
+
+h1 {
+  margin: 0 0 16px;
+  font-size: 1.4rem;
+}
+
+p {
+  color: var(--muted);
+  line-height: 1.4;
+}
+
+.sender-field {
+  display: block;
+  margin-bottom: 20px;
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.sender-field input {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 12px;
+  font-size: 1rem;
+  border-radius: 10px;
+  border: 1px solid #333844;
+  background: #14161c;
+  color: var(--text);
+}
+
+.recorder {
+  text-align: center;
+}
+
+button {
+  font-size: 1rem;
+  padding: 14px 20px;
+  border-radius: 12px;
+  border: none;
+  cursor: pointer;
+  min-height: 48px;
+}
+
+.record-btn {
+  width: 100%;
+  background: var(--danger);
+  color: white;
+  font-weight: 600;
+}
+
+.timer {
+  margin-top: 12px;
+  font-variant-numeric: tabular-nums;
+}
+
+audio {
+  width: 100%;
+  margin: 16px 0;
+}
+
+.actions {
+  display: flex;
+  gap: 12px;
+}
+
+.actions button {
+  flex: 1;
+}
+
+.primary {
+  background: var(--accent);
+  color: white;
+  font-weight: 600;
+}
+
+#retry-btn,
+#record-again-btn {
+  width: 100%;
+  margin-top: 12px;
+  background: var(--accent);
+  color: white;
+}
+
+code {
+  background: #14161c;
+  padding: 2px 6px;
+  border-radius: 6px;
+}

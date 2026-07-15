@@ -1,0 +1,14 @@
+# Backend
+backend/node_modules
+backend/dist
+backend/data-dev
+backend/.env
+
+# iOS / Xcode
+ios/Walkie.xcodeproj/project.xcworkspace/xcuserdata/
+ios/Walkie.xcodeproj/xcuserdata/
+ios/**/*.xcuserstate
+ios/DerivedData/
+
+# OS
+.DS_Store
