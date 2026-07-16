@@ -56,14 +56,24 @@ final class WalkieViewModel: ObservableObject {
         Task { await catchUp() }
     }
 
+    // The app runs unattended in the background — a one-off failure here (cold-started
+    // backend, transient DNS/network blip at first launch) must not strand the app on
+    // "Configuration du canal…" forever. Retry with the same backoff shape as
+    // WebSocketClient's reconnect (1s → 2s → ... → 30s cap) until it succeeds.
     private func pair() async {
-        do {
-            let channel = try await api.createChannel()
-            store.channelCode = channel.code
-            channelCode = channel.code
-            webSocket.connect(code: channel.code)
-        } catch {
-            print("WalkieViewModel: pairing failed: \(error)")
+        var backoff: TimeInterval = 1
+        while channelCode == nil {
+            do {
+                let channel = try await api.createChannel()
+                store.channelCode = channel.code
+                channelCode = channel.code
+                webSocket.connect(code: channel.code)
+                return
+            } catch {
+                print("WalkieViewModel: pairing failed, retrying in \(backoff)s: \(error)")
+                try? await Task.sleep(nanoseconds: UInt64(backoff * 1_000_000_000))
+                backoff = min(backoff * 2, 30)
+            }
         }
     }
 
