@@ -9,10 +9,6 @@ services:
     restart: unless-stopped
     env_file:
       - .env
-    environment:
-      - VIRTUAL_HOST=walkie.gcourtot.fr
-      - VIRTUAL_PORT=3000
-      - LETSENCRYPT_HOST=walkie.gcourtot.fr
     volumes:
       - ./data:/data
     expose:
