@@ -2,6 +2,7 @@ import SwiftUI
 
 struct HistoryView: View {
     @ObservedObject var viewModel: WalkieViewModel
+    @State private var exportItem: ExportItem?
 
     var body: some View {
         Group {
@@ -29,7 +30,14 @@ struct HistoryView: View {
                     .swipeActions(edge: .trailing) {
                         // Garder ce message en souvenir en dehors de l'app — Fichiers,
                         // AirDrop, Messages, etc. via la feuille de partage standard.
-                        ShareLink(item: MessageHistoryStore.shared.exportURL(for: message)) {
+                        // Note : `ShareLink` placé directement dans `.swipeActions` ne
+                        // déclenche rien sur certaines versions d'iOS (le bouton
+                        // s'affiche mais l'action ne part jamais) — on présente donc
+                        // `UIActivityViewController` nous-mêmes via `.sheet`, qui ne
+                        // dépend pas de ce contexte de présentation fragile.
+                        Button {
+                            exportItem = ExportItem(url: MessageHistoryStore.shared.exportURL(for: message))
+                        } label: {
                             Label("Exporter", systemImage: "square.and.arrow.up")
                         }
                         .tint(.blue)
@@ -38,6 +46,9 @@ struct HistoryView: View {
             }
         }
         .navigationTitle("Historique")
+        .sheet(item: $exportItem) { item in
+            ActivityView(activityItems: [item.url])
+        }
     }
 
     private static let isoFormatter: ISO8601DateFormatter = {
@@ -58,4 +69,19 @@ struct HistoryView: View {
         guard let date = isoFormatter.date(from: isoString) else { return isoString }
         return displayFormatter.string(from: date)
     }
+}
+
+private struct ExportItem: Identifiable {
+    let id = UUID()
+    let url: URL
+}
+
+private struct ActivityView: UIViewControllerRepresentable {
+    let activityItems: [Any]
+
+    func makeUIViewController(context: Context) -> UIActivityViewController {
+        UIActivityViewController(activityItems: activityItems, applicationActivities: nil)
+    }
+
+    func updateUIViewController(_ uiViewController: UIActivityViewController, context: Context) {}
 }
