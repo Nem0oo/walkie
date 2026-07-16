@@ -6,11 +6,21 @@ import SwiftUI
 final class WalkieViewModel: ObservableObject {
     @Published private(set) var channelCode: String?
     @Published private(set) var connectionState: ConnectionState = .disconnected
+    @Published private(set) var messages: [StoredMessage] = [] // most recent first
+    // Surfaced in the UI (not just printed) — without Xcode/a Mac, console prints are
+    // otherwise invisible on a Theos-built, sideloaded app.
+    @Published private(set) var lastError: String?
 
     private let api = APIClient.shared
     private let store = PersistenceStore.shared
+    private let history = MessageHistoryStore.shared
     private let webSocket = WebSocketClient()
     private let audio = AudioSessionManager()
+    // `.onAppear` (which calls `start()`) can fire more than once for the same view —
+    // e.g. popping back from HistoryView re-triggers it. `WebSocketClient.connect` is
+    // itself guarded against redundant calls, but avoiding a duplicate `pair()`/
+    // `catchUp()` pass here too is one less thing to reason about.
+    private var hasStarted = false
 
     var shareURL: URL? {
         channelCode.flatMap { URL(string: "https://walkie.gcourtot.fr/send/\($0)") }
@@ -30,6 +40,7 @@ final class WalkieViewModel: ObservableObject {
 
     init() {
         audio.startKeepAlive()
+        messages = Array(history.loadAll().reversed())
 
         webSocket.onMessage = { [weak self] message in
             Task { @MainActor in await self?.handleIncoming(message) }
@@ -37,9 +48,16 @@ final class WalkieViewModel: ObservableObject {
         webSocket.$state
             .receive(on: DispatchQueue.main)
             .assign(to: &$connectionState)
+        webSocket.$lastErrorDescription
+            .compactMap { $0 }
+            .receive(on: DispatchQueue.main)
+            .map { "WebSocket : \($0)" }
+            .assign(to: &$lastError)
     }
 
     func start() {
+        guard !hasStarted else { return }
+        hasStarted = true
         Task {
             if let existingCode = store.channelCode {
                 channelCode = existingCode
@@ -80,22 +98,42 @@ final class WalkieViewModel: ObservableObject {
     private func catchUp() async {
         guard let code = channelCode else { return }
         do {
-            let messages = try await api.fetchMessages(code: code, since: store.lastSeenMessageId)
-            for message in messages {
+            let fetched = try await api.fetchMessages(code: code, since: store.lastSeenMessageId)
+            for message in fetched {
                 await handleIncoming(message)
             }
         } catch {
             print("WalkieViewModel: catch-up failed: \(error)")
+            lastError = "Rattrapage échoué : \(error.localizedDescription)"
         }
     }
 
     private func handleIncoming(_ message: VoiceMessage) async {
-        store.lastSeenMessageId = message.id
         do {
-            let fileURL = try await DownloadManager.shared.downloadToLocalFile(from: message.url)
-            audio.enqueue(message, localFileURL: fileURL)
+            let downloadedURL = try await DownloadManager.shared.downloadToLocalFile(from: message.url)
+            let stored = try history.save(
+                id: message.id,
+                sender: message.sender ?? "Anonyme",
+                createdAt: message.created_at,
+                downloadedFileURL: downloadedURL
+            )
+            // Only mark as seen once actually persisted — marking it earlier would let a
+            // transient download/save failure silently and permanently drop the message,
+            // since the REST catch-up (`since=<lastSeenMessageId>`) would never re-deliver
+            // anything at or before this id.
+            store.lastSeenMessageId = message.id
+            messages.insert(stored, at: 0)
+            lastError = nil
+            audio.enqueue(id: stored.id, fileURL: history.fileURL(for: stored))
         } catch {
-            print("WalkieViewModel: failed to download message \(message.id): \(error)")
+            print("WalkieViewModel: failed to handle message \(message.id): \(error)")
+            lastError = "Message non lu (\(message.sender ?? "Anonyme")) : \(error.localizedDescription)"
         }
+    }
+
+    /// Replays a message from history — reuses the same serial playback queue as live
+    /// messages so a manual replay never overlaps with an incoming one.
+    func replay(_ message: StoredMessage) {
+        audio.enqueue(id: message.id, fileURL: history.fileURL(for: message))
     }
 }

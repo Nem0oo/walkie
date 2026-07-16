@@ -20,7 +20,10 @@ import AVFoundation
 final class AudioSessionManager: NSObject, ObservableObject {
     private var keepAlivePlayer: AVAudioPlayer?
     private var messagePlayer: AVAudioPlayer?
-    private var queue: [(message: VoiceMessage, fileURL: URL)] = []
+    // (id, fileURL) rather than a network model — this queue plays both freshly
+    // received messages and history replays triggered from the UI, neither of which
+    // should require constructing a fake VoiceMessage.
+    private var queue: [(id: String, fileURL: URL)] = []
     private var isPlaying = false
 
     func startKeepAlive() {
@@ -45,8 +48,8 @@ final class AudioSessionManager: NSObject, ObservableObject {
         }
     }
 
-    func enqueue(_ message: VoiceMessage, localFileURL: URL) {
-        queue.append((message, localFileURL))
+    func enqueue(id: String, fileURL: URL) {
+        queue.append((id, fileURL))
         playNextIfIdle()
     }
 
@@ -62,7 +65,7 @@ final class AudioSessionManager: NSObject, ObservableObject {
             messagePlayer = player
             player.play()
         } catch {
-            print("AudioSessionManager: failed to play message \(next.message.id): \(error)")
+            print("AudioSessionManager: failed to play message \(next.id): \(error)")
             finishPlayback()
         }
     }

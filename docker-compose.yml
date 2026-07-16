@@ -24,6 +24,12 @@ services:
       retries: 5
     labels:
       - com.centurylinklabs.watchtower.enable=true
+      # nginx-proxy négocie HTTP/2 par défaut, sur lequel l'Upgrade WebSocket classique
+      # (RFC6455) ne fonctionne pas — cette stack n'implémente pas RFC8441 (WebSocket
+      # sur HTTP/2). Désactivé ici, scoping au conteneur (lu par nginx-proxy depuis ce
+      # label, cf. nginx.tmpl:618) : ne touche pas la config partagée de nginx-proxy ni
+      # les autres vhosts.
+      - com.github.nginx-proxy.nginx-proxy.http2.enable=false
     networks:
       - frontend
 

@@ -13,12 +13,14 @@ export function handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer
   const match = url.pathname.match(SUBSCRIBE_PATH);
 
   if (!match) {
+    console.log(`[ws] upgrade rejected, no path match: ${url.pathname}`);
     socket.destroy();
     return;
   }
 
   const channelCode = decodeURIComponent(match[1]);
   if (!getChannelByCode(channelCode)) {
+    console.log(`[ws] upgrade rejected, unknown channel: ${channelCode}`);
     socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
     socket.destroy();
     return;
