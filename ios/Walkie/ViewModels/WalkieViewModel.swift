@@ -10,6 +10,7 @@ final class WalkieViewModel: ObservableObject {
     // Surfaced in the UI (not just printed) — without Xcode/a Mac, console prints are
     // otherwise invisible on a Theos-built, sideloaded app.
     @Published private(set) var lastError: String?
+    @Published private(set) var isRevoking = false
 
     private let api = APIClient.shared
     private let store = PersistenceStore.shared
@@ -135,5 +136,28 @@ final class WalkieViewModel: ObservableObject {
     /// messages so a manual replay never overlaps with an incoming one.
     func replay(_ message: StoredMessage) {
         audio.enqueue(id: message.id, fileURL: history.fileURL(for: message))
+    }
+
+    /// Invalidates the current link (everyone who has it loses access) and re-runs the
+    /// normal pairing flow to get a fresh one — deliberately reuses `pair()`'s own
+    /// retry/backoff rather than duplicating that logic here.
+    func revokeChannelAndRepair() async {
+        guard let code = channelCode else { return }
+        isRevoking = true
+        defer { isRevoking = false }
+
+        do {
+            try await api.revokeChannel(code: code)
+        } catch {
+            print("WalkieViewModel: revoke failed: \(error)")
+            lastError = "Révocation échouée : \(error.localizedDescription)"
+            return
+        }
+
+        webSocket.disconnect()
+        store.channelCode = nil
+        store.lastSeenMessageId = nil
+        channelCode = nil
+        await pair()
     }
 }

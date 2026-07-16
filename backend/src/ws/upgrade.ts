@@ -1,7 +1,7 @@
 import type { IncomingMessage } from "node:http";
 import type { Duplex } from "node:stream";
 import { WebSocketServer } from "ws";
-import { getChannelByCode } from "../repositories/channels";
+import { getActiveChannelByCode } from "../repositories/channels";
 import { subscribe } from "./hub";
 
 const SUBSCRIBE_PATH = /^\/channels\/([^/]+)\/subscribe$/;
@@ -19,7 +19,7 @@ export function handleUpgrade(req: IncomingMessage, socket: Duplex, head: Buffer
   }
 
   const channelCode = decodeURIComponent(match[1]);
-  if (!getChannelByCode(channelCode)) {
+  if (!getActiveChannelByCode(channelCode)) {
     console.log(`[ws] upgrade rejected, unknown channel: ${channelCode}`);
     socket.write("HTTP/1.1 404 Not Found\r\n\r\n");
     socket.destroy();

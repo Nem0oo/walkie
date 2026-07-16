@@ -2,6 +2,7 @@ import SwiftUI
 
 struct ContentView: View {
     @EnvironmentObject private var viewModel: WalkieViewModel
+    @State private var showRevokeConfirmation = false
 
     var body: some View {
         NavigationStack {
@@ -28,6 +29,25 @@ struct ContentView: View {
                             Label("Partager le lien", systemImage: "square.and.arrow.up")
                         }
                         .buttonStyle(.borderedProminent)
+                    }
+
+                    Button(role: .destructive) {
+                        showRevokeConfirmation = true
+                    } label: {
+                        Label("Révoquer le lien", systemImage: "xmark.circle")
+                    }
+                    .disabled(viewModel.isRevoking)
+                    .confirmationDialog(
+                        "Révoquer ce lien ?",
+                        isPresented: $showRevokeConfirmation,
+                        titleVisibility: .visible
+                    ) {
+                        Button("Révoquer et générer un nouveau lien", role: .destructive) {
+                            Task { await viewModel.revokeChannelAndRepair() }
+                        }
+                        Button("Annuler", role: .cancel) {}
+                    } message: {
+                        Text("Toute personne ayant l'ancien lien perdra l'accès. Il faudra repartager le nouveau lien.")
                     }
                 } else {
                     ProgressView("Configuration du canal…")

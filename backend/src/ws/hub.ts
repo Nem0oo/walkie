@@ -35,6 +35,13 @@ export function closeAll(): void {
   }
 }
 
+// Called on revoke — closes any live subscriber for that one channel so a socket
+// opened just before revocation doesn't linger; the client's own reconnect logic
+// will then hit the now-404'd upgrade endpoint and give up cleanly.
+export function closeChannel(channelCode: string): void {
+  for (const ws of subscribers.get(channelCode) ?? []) ws.close();
+}
+
 export function broadcast(channelCode: string, payload: unknown): void {
   const sockets = subscribers.get(channelCode);
   log(`[ws] broadcast channel=${channelCode} subscribers=${sockets?.size ?? 0}`);

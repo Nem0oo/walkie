@@ -26,6 +26,14 @@ struct HistoryView: View {
                         }
                     }
                     .foregroundStyle(.primary)
+                    .swipeActions(edge: .trailing) {
+                        // Garder ce message en souvenir en dehors de l'app — Fichiers,
+                        // AirDrop, Messages, etc. via la feuille de partage standard.
+                        ShareLink(item: MessageHistoryStore.shared.exportURL(for: message)) {
+                            Label("Exporter", systemImage: "square.and.arrow.up")
+                        }
+                        .tint(.blue)
+                    }
                 }
             }
         }

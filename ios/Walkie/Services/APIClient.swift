@@ -27,6 +27,15 @@ final class APIClient {
         return http.statusCode == 200
     }
 
+    /// Invalidates the current channel code — everyone holding the old link loses
+    /// access. Doesn't return a replacement; callers re-run the normal pairing flow.
+    func revokeChannel(code: String) async throws {
+        var request = URLRequest(url: baseURL.appendingPathComponent("channels").appendingPathComponent(code).appendingPathComponent("revoke"))
+        request.httpMethod = "POST"
+        let (_, response) = try await session.data(for: request)
+        try Self.checkStatus(response, expect: 204)
+    }
+
     func fetchMessages(code: String, since: String?) async throws -> [VoiceMessage] {
         var url = baseURL.appendingPathComponent("channels").appendingPathComponent(code).appendingPathComponent("messages")
         if let since {

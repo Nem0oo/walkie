@@ -1,7 +1,8 @@
 import { Router } from "express";
-import { createChannel, getChannelByCode, type Channel } from "../repositories/channels";
+import { createChannel, getChannelByCode, revokeChannel, type Channel } from "../repositories/channels";
 import { channelExists } from "../middleware/channelExists";
 import { newChannelCode } from "../services/ids";
+import { closeChannel } from "../ws/hub";
 
 export const channelsRouter = Router();
 
@@ -22,4 +23,15 @@ channelsRouter.post("/channels", (_req, res) => {
 
 channelsRouter.get("/channels/:code", channelExists, (_req, res) => {
   res.json(res.locals.channel);
+});
+
+// Invalidates the current link — the code itself is the only "secret" in this app, so
+// this is the sole way to cut off everyone who has it. Knowing the current (still
+// active) code is the only authorization needed, same trust model as everything else.
+// Doesn't return a replacement code: the caller (the iOS app) re-runs its normal
+// pairing flow to get a fresh one, rather than this endpoint duplicating that logic.
+channelsRouter.post("/channels/:code/revoke", channelExists, (req, res) => {
+  revokeChannel(req.params.code);
+  closeChannel(req.params.code);
+  res.status(204).send();
 });

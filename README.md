@@ -19,6 +19,8 @@ Un seul conteneur Docker sert à la fois l'API et la page web (le Dockerfile cop
 5. Le message est diffusé en direct via WebSocket à l'app iOS, qui le télécharge et le joue automatiquement, même en arrière-plan.
 6. Si l'app était hors ligne, elle rattrape les messages manqués via un appel REST au retour au premier plan.
 
+Le code de canal est le seul "secret" de l'app (pas de compte). Pour couper l'accès aux personnes qui ont le lien actuel (sans redéployer quoi que ce soit), le bouton **"Révoquer le lien"** dans l'app appelle `POST /channels/:code/revoke`, qui invalide définitivement l'ancien code (toute requête dessus renvoie 404, comme un lien inexistant) et ferme sa connexion WebSocket si elle était active ; l'app relance ensuite son flux de pairing normal pour obtenir un nouveau code, qu'il faut repartager.
+
 ## Backend + web — build et déploiement
 
 ### Développement local
