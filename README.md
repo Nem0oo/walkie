@@ -130,6 +130,7 @@ Deux workflows GitHub Actions indépendants, déclenchés séparément via `path
 - Push vers Docker Hub (`nem0oo/walkie`) uniquement sur `push` (jamais sur PR) : tag `latest` sur `main`, tags sémantiques (`1.2.3`, `1.2`) sur un tag git `v*`.
 - Secrets requis dans les paramètres du repo GitHub (`Settings → Secrets and variables → Actions`) : `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (un [access token](https://hub.docker.com/settings/security) Docker Hub, pas ton mot de passe).
 - Déclencher une release versionnée : `git tag v1.0.0 && git push origin v1.0.0`.
+- Après le push de l'image, un dernier job (`trigger_watchtower`) appelle le webhook n8n (`N8N_WEBHOOK_ID`, même mécanisme que `killer_search/.github/workflows/build.yml`) pour forcer une vérification immédiate de watchtower — sinon watchtower ne repasserait qu'à son prochain passage planifié (`WATCHTOWER_SCHEDULE`, une fois par jour sur ce serveur), et le conteneur `walkie` ne redémarrerait pas tout de suite après un `push`/tag.
 
 ### `.github/workflows/ios-build.yml` — app iOS
 

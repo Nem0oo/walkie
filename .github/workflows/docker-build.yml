@@ -55,3 +55,17 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max
+
+  trigger_watchtower:
+    # Watchtower on the homelab server only polls Docker Hub once a day
+    # (WATCHTOWER_SCHEDULE) — pushing a new image alone doesn't redeploy anything
+    # until that runs. Same pattern as killer_search/.github/workflows/build.yml:
+    # ping the n8n webhook that forces an immediate watchtower update check instead
+    # of waiting for the schedule.
+    if: github.event_name == 'push'
+    needs: build_and_push
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger deploy via n8n
+        run: |
+          curl -H "Content-Type: application/json" "https://n8n.gcourtot.fr/webhook/${{ secrets.N8N_WEBHOOK_ID }}"
