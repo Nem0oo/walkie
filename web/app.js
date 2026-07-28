@@ -95,11 +95,14 @@
 
   recordBtn.addEventListener("click", async () => {
     if (!mediaRecorder || mediaRecorder.state === "inactive") {
+      recordBtn.disabled = true;
       try {
         await startRecording();
       } catch (err) {
         el("error-message").textContent = "Impossible d'accéder au microphone.";
         showState("error");
+      } finally {
+        recordBtn.disabled = false;
       }
     } else {
       stopRecording();
@@ -109,13 +112,14 @@
   discardBtn.addEventListener("click", resetRecorder);
 
   async function uploadRecording() {
+    if (!recordedBlob) return;
     showState("uploading");
-    const form = new FormData();
-    const ext = (recordedBlob.type.split("/")[1] || "webm").split(";")[0];
-    form.append("audio", recordedBlob, `recording.${ext}`);
-    form.append("sender", senderInput.value.trim());
 
     try {
+      const form = new FormData();
+      const ext = (recordedBlob.type.split("/")[1] || "webm").split(";")[0];
+      form.append("audio", recordedBlob, `recording.${ext}`);
+      form.append("sender", senderInput.value.trim());
       const res = await fetch(`/channels/${code}/messages`, { method: "POST", body: form });
       if (!res.ok) throw new Error(`upload_failed_${res.status}`);
       showState("sent");
