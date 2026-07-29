@@ -138,6 +138,17 @@ final class WalkieViewModel: ObservableObject {
         audio.enqueue(id: message.id, fileURL: history.fileURL(for: message))
     }
 
+    /// Deletes a single message from local history (audio file + index entry).
+    func delete(_ message: StoredMessage) {
+        do {
+            try history.delete(message)
+            messages.removeAll { $0.id == message.id }
+        } catch {
+            print("WalkieViewModel: failed to delete message \(message.id): \(error)")
+            lastError = "Suppression échouée : \(error.localizedDescription)"
+        }
+    }
+
     /// Invalidates the current link (everyone who has it loses access) and re-runs the
     /// normal pairing flow to get a fresh one — deliberately reuses `pair()`'s own
     /// retry/backoff rather than duplicating that logic here.

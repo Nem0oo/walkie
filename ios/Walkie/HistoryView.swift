@@ -42,6 +42,13 @@ struct HistoryView: View {
                         }
                         .tint(.blue)
                     }
+                    .swipeActions(edge: .leading) {
+                        Button(role: .destructive) {
+                            viewModel.delete(message)
+                        } label: {
+                            Label("Supprimer", systemImage: "trash")
+                        }
+                    }
                 }
             }
         }

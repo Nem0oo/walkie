@@ -68,6 +68,16 @@ final class MessageHistoryStore {
         return (try? JSONDecoder().decode([StoredMessage].self, from: data)) ?? []
     }
 
+    /// Removes a single message's audio file and its index entry. Doesn't touch
+    /// `lastSeenMessageId`, so a deleted (already-seen) message won't be re-fetched by
+    /// the next catch-up.
+    func delete(_ message: StoredMessage) throws {
+        try? FileManager.default.removeItem(at: fileURL(for: message))
+        var all = loadAll()
+        all.removeAll { $0.id == message.id }
+        try save(all)
+    }
+
     private func save(_ messages: [StoredMessage]) throws {
         let data = try JSONEncoder().encode(messages)
         try data.write(to: indexFile, options: .atomic)
