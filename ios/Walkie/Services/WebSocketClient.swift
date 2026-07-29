@@ -82,15 +82,30 @@ final class WebSocketClient: NSObject, ObservableObject {
 
     private func openSocket() {
         guard let channelCode, state != .connecting else { return }
+        guard let url = Self.subscribeURL(code: channelCode) else {
+            lastErrorDescription = "Aucun serveur configuré."
+            return
+        }
         state = .connecting
 
-        let url = URL(string: "wss://walkie.gcourtot.fr/channels/\(channelCode)/subscribe")!
         let newTask = session.webSocketTask(with: url)
         task = newTask
         newTask.resume()
 
         listen(on: newTask)
         startHeartbeat(for: newTask)
+    }
+
+    /// Derives the `wss://` subscribe URL from the server configured in the
+    /// Configuration tab (same host as `APIClient`'s REST calls, just a different
+    /// scheme) — read fresh each time so a server change takes effect on next connect.
+    private static func subscribeURL(code: String) -> URL? {
+        guard let serverString = PersistenceStore.shared.serverURLString,
+              let httpURL = URL(string: serverString) else { return nil }
+        let path = httpURL.appendingPathComponent("channels").appendingPathComponent(code).appendingPathComponent("subscribe")
+        guard var components = URLComponents(url: path, resolvingAgainstBaseURL: false) else { return nil }
+        components.scheme = (components.scheme == "http") ? "ws" : "wss"
+        return components.url
     }
 
     // Every callback below takes the specific task it was armed for and checks it's

@@ -7,7 +7,7 @@ struct WalkieApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            RootTabView()
                 .environmentObject(viewModel)
                 .onAppear { viewModel.start() }
         }

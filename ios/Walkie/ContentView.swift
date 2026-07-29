@@ -49,6 +49,18 @@ struct ContentView: View {
                     } message: {
                         Text("Toute personne ayant l'ancien lien perdra l'accès. Il faudra repartager le nouveau lien.")
                     }
+                } else if viewModel.serverURLString == nil {
+                    VStack(spacing: 12) {
+                        Image(systemName: "server.rack")
+                            .font(.largeTitle)
+                            .foregroundStyle(.secondary)
+                        Text("Aucun serveur configuré")
+                            .font(.headline)
+                        Text("Renseigne l'adresse de ton serveur Walkie dans l'onglet Configuration pour commencer.")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                            .multilineTextAlignment(.center)
+                    }
                 } else {
                     ProgressView("Configuration du canal…")
                 }
@@ -61,15 +73,6 @@ struct ContentView: View {
                 }
             }
             .padding()
-            .toolbar {
-                ToolbarItem(placement: .navigationBarTrailing) {
-                    NavigationLink {
-                        HistoryView(viewModel: viewModel)
-                    } label: {
-                        Label("Historique", systemImage: "clock.arrow.circlepath")
-                    }
-                }
-            }
         }
     }
 }

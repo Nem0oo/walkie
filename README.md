@@ -12,7 +12,7 @@ Un seul conteneur Docker sert à la fois l'API et la page web (le Dockerfile cop
 
 ## Comment ça marche
 
-1. Au premier lancement, l'app iOS crée un canal (`POST /channels`) et affiche un code + un lien `https://walkie.gcourtot.fr/send/{code}` + un QR code.
+1. Au premier lancement, l'app iOS n'est reliée à aucun serveur — l'onglet **Configuration** demande l'adresse du backend auto-hébergé (ex. `https://walkie.gcourtot.fr`) avant toute autre action. C'est volontaire : une app distribuée à quelqu'un d'autre ne doit jamais se connecter automatiquement au serveur du mainteneur (voir `PersistenceStore.serverURLString` côté iOS). Une fois configurée, l'app crée un canal (`POST /channels`) et affiche un code + un lien `{serveur}/send/{code}` + un QR code.
 2. Tu partages ce lien à un proche par SMS/mail.
 3. Le proche ouvre le lien dans son navigateur, enregistre un message (max 2 minutes), l'envoie.
 4. Le backend retranscode systématiquement l'audio en AAC/`.m4a` — les navigateurs enregistrent en général en webm/opus, qu'iOS ne lit pas de façon fiable ; ce passage garantit que l'app iOS reçoit toujours un format lisible quel que soit le navigateur d'origine.

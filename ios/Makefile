@@ -5,6 +5,7 @@ include $(THEOS)/makefiles/common.mk
 
 APPLICATION_NAME = Walkie
 Walkie_FILES = Walkie/WalkieApp.swift Walkie/ContentView.swift Walkie/HistoryView.swift \
+	Walkie/RootTabView.swift Walkie/SettingsView.swift \
 	Walkie/Models/Channel.swift Walkie/Models/VoiceMessage.swift Walkie/Models/StoredMessage.swift \
 	Walkie/Services/APIClient.swift Walkie/Services/WebSocketClient.swift \
 	Walkie/Services/AudioSessionManager.swift Walkie/Services/DownloadManager.swift \
