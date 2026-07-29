@@ -12,6 +12,7 @@ final class PersistenceStore {
     private enum Keys {
         static let channelCode = "walkie.channelCode"
         static let lastSeenMessageId = "walkie.lastSeenMessageId"
+        static let serverURL = "walkie.serverURL"
     }
 
     var channelCode: String? {
@@ -22,5 +23,14 @@ final class PersistenceStore {
     var lastSeenMessageId: String? {
         get { defaults.string(forKey: Keys.lastSeenMessageId) }
         set { defaults.set(newValue, forKey: Keys.lastSeenMessageId) }
+    }
+
+    /// `nil` until the user configures one in the Configuration tab — deliberately no
+    /// hardcoded default, so a sideloaded copy of this app never silently phones home to
+    /// the maintainer's own server. See `WalkieViewModel.init` for the one exception
+    /// (migrating installs that predate this setting).
+    var serverURLString: String? {
+        get { defaults.string(forKey: Keys.serverURL) }
+        set { defaults.set(newValue, forKey: Keys.serverURL) }
     }
 }

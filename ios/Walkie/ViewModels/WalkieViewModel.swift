@@ -11,6 +11,7 @@ final class WalkieViewModel: ObservableObject {
     // otherwise invisible on a Theos-built, sideloaded app.
     @Published private(set) var lastError: String?
     @Published private(set) var isRevoking = false
+    @Published private(set) var serverURLString: String?
 
     private let api = APIClient.shared
     private let store = PersistenceStore.shared
@@ -24,7 +25,10 @@ final class WalkieViewModel: ObservableObject {
     private var hasStarted = false
 
     var shareURL: URL? {
-        channelCode.flatMap { URL(string: "https://walkie.gcourtot.fr/send/\($0)") }
+        guard let code = channelCode, let serverString = serverURLString, let base = URL(string: serverString) else {
+            return nil
+        }
+        return base.appendingPathComponent("send").appendingPathComponent(code)
     }
 
     var qrImage: UIImage? {
@@ -43,6 +47,16 @@ final class WalkieViewModel: ObservableObject {
         audio.startKeepAlive()
         messages = Array(history.loadAll().reversed())
 
+        // Pre-v-configuration-tab installs have a paired `channelCode` but never wrote a
+        // `serverURLString` (that setting didn't exist yet) — they were always pointed
+        // at the maintainer's own server. Grandfather them in rather than stranding
+        // existing users on "no server configured" after an update. Fresh installs
+        // (no channelCode either) get no default: see `PersistenceStore.serverURLString`.
+        if store.serverURLString == nil, store.channelCode != nil {
+            store.serverURLString = "https://walkie.gcourtot.fr"
+        }
+        serverURLString = store.serverURLString
+
         webSocket.onMessage = { [weak self] message in
             Task { @MainActor in await self?.handleIncoming(message) }
         }
@@ -58,6 +72,7 @@ final class WalkieViewModel: ObservableObject {
 
     func start() {
         guard !hasStarted else { return }
+        guard serverURLString != nil else { return } // wait for Configuration tab
         hasStarted = true
         Task {
             if let existingCode = store.channelCode {
@@ -170,5 +185,35 @@ final class WalkieViewModel: ObservableObject {
         store.lastSeenMessageId = nil
         channelCode = nil
         await pair()
+    }
+
+    /// Points the app at a different backend. Distributed copies of this app must never
+    /// silently pair against the maintainer's own server — this is the only way a
+    /// server gets configured (see `PersistenceStore.serverURLString`). Switching server
+    /// implicitly abandons the current channel: a channel code only means something on
+    /// the server that issued it, so a fresh one is paired on the new server. Locally
+    /// downloaded message history (audio files) is unaffected — it doesn't depend on
+    /// the server that originally delivered it.
+    func configureServer(_ urlString: String) {
+        var trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.hasSuffix("/") { trimmed.removeLast() }
+
+        guard let url = URL(string: trimmed),
+              let scheme = url.scheme?.lowercased(), scheme == "http" || scheme == "https",
+              url.host != nil else {
+            lastError = "URL de serveur invalide (exemple : https://mon-serveur.fr)."
+            return
+        }
+        guard trimmed != store.serverURLString else { return }
+
+        webSocket.disconnect()
+        store.serverURLString = trimmed
+        store.channelCode = nil
+        store.lastSeenMessageId = nil
+        serverURLString = trimmed
+        channelCode = nil
+        lastError = nil
+        hasStarted = false
+        start()
     }
 }
