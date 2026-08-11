@@ -25,6 +25,7 @@ final class AudioSessionManager: NSObject, ObservableObject {
     // should require constructing a fake VoiceMessage.
     private var queue: [(id: String, fileURL: URL)] = []
     private var isPlaying = false
+    @Published private(set) var currentlyPlayingID: String?
 
     func startKeepAlive() {
         guard keepAlivePlayer == nil else { return }
@@ -48,15 +49,29 @@ final class AudioSessionManager: NSObject, ObservableObject {
         }
     }
 
+    // Ignores a message already playing or already waiting in the queue — without this,
+    // repeatedly tapping the same history row queued up that many back-to-back replays
+    // instead of just playing it once.
     func enqueue(id: String, fileURL: URL) {
+        guard currentlyPlayingID != id, !queue.contains(where: { $0.id == id }) else { return }
         queue.append((id, fileURL))
         playNextIfIdle()
+    }
+
+    /// Stops whatever is currently playing and drops anything still queued behind it.
+    /// The only stop/pause control the app exposes — see `WalkieViewModel.replay`.
+    func stop() {
+        queue.removeAll()
+        guard isPlaying else { return }
+        messagePlayer?.stop()
+        finishPlayback()
     }
 
     private func playNextIfIdle() {
         guard !isPlaying, !queue.isEmpty else { return }
         let next = queue.removeFirst()
         isPlaying = true
+        currentlyPlayingID = next.id
 
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers, .duckOthers])
@@ -75,6 +90,7 @@ final class AudioSessionManager: NSObject, ObservableObject {
         try? AVAudioSession.sharedInstance().setCategory(.playback, options: [.mixWithOthers])
         messagePlayer = nil
         isPlaying = false
+        currentlyPlayingID = nil
         playNextIfIdle()
     }
 }

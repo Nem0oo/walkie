@@ -12,6 +12,7 @@ final class WalkieViewModel: ObservableObject {
     @Published private(set) var lastError: String?
     @Published private(set) var isRevoking = false
     @Published private(set) var serverURLString: String?
+    @Published private(set) var playingMessageID: String?
 
     private let api = APIClient.shared
     private let store = PersistenceStore.shared
@@ -68,6 +69,9 @@ final class WalkieViewModel: ObservableObject {
             .receive(on: DispatchQueue.main)
             .map { "WebSocket : \($0)" }
             .assign(to: &$lastError)
+        audio.$currentlyPlayingID
+            .receive(on: DispatchQueue.main)
+            .assign(to: &$playingMessageID)
     }
 
     func start() {
@@ -148,9 +152,15 @@ final class WalkieViewModel: ObservableObject {
     }
 
     /// Replays a message from history — reuses the same serial playback queue as live
-    /// messages so a manual replay never overlaps with an incoming one.
+    /// messages so a manual replay never overlaps with an incoming one. Tapping the
+    /// message that's currently playing stops it instead — this is the app's only
+    /// stop/pause control.
     func replay(_ message: StoredMessage) {
-        audio.enqueue(id: message.id, fileURL: history.fileURL(for: message))
+        if playingMessageID == message.id {
+            audio.stop()
+        } else {
+            audio.enqueue(id: message.id, fileURL: history.fileURL(for: message))
+        }
     }
 
     /// Deletes a single message from local history (audio file + index entry).

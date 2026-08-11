@@ -16,7 +16,9 @@ struct HistoryView: View {
                         viewModel.replay(message)
                     } label: {
                         HStack {
-                            Image(systemName: "play.circle")
+                            // Tapping again while this row is playing stops it — the icon
+                            // doubles as the app's only stop/pause affordance.
+                            Image(systemName: viewModel.playingMessageID == message.id ? "stop.circle.fill" : "play.circle")
                             VStack(alignment: .leading) {
                                 Text(message.sender)
                                     .font(.headline)
