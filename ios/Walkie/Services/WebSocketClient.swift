@@ -1,4 +1,5 @@
 import Foundation
+import Network
 
 enum ConnectionState {
     case disconnected
@@ -55,6 +56,36 @@ final class WebSocketClient: NSObject, ObservableObject {
     private let maxBackoff: TimeInterval = 30
     private var heartbeatTimer: Timer?
     private var reconnectWorkItem: DispatchWorkItem?
+
+    // Retrying a full TCP/TLS handshake every 30s in a dead zone accomplishes nothing
+    // but burns radio power on top of the phone's own cell-search — so `scheduleReconnect`
+    // skips the timer entirely while there's no path at all, and this monitor is what
+    // fires `openSocket()` again the moment one becomes available.
+    private let pathMonitor = NWPathMonitor()
+    private let pathMonitorQueue = DispatchQueue(label: "WebSocketClient.pathMonitor")
+    private var hasNetworkPath = true
+
+    override init() {
+        super.init()
+        pathMonitor.pathUpdateHandler = { [weak self] path in
+            DispatchQueue.main.async { self?.handlePathUpdate(path) }
+        }
+        pathMonitor.start(queue: pathMonitorQueue)
+    }
+
+    deinit {
+        pathMonitor.cancel()
+    }
+
+    private func handlePathUpdate(_ path: NWPath) {
+        let cameBackFromNoPath = !hasNetworkPath && path.status == .satisfied
+        hasNetworkPath = (path.status == .satisfied)
+
+        guard cameBackFromNoPath, channelCode != nil, state == .disconnected else { return }
+        reconnectWorkItem?.cancel()
+        backoff = 1
+        openSocket()
+    }
 
     // `connect(code:)` can be called more than once for the same WebSocketClient
     // instance — e.g. SwiftUI can fire `.onAppear` twice (a known quirk with
@@ -168,6 +199,12 @@ final class WebSocketClient: NSObject, ObservableObject {
         state = .disconnected
         task.cancel()
         heartbeatTimer?.invalidate()
+
+        guard hasNetworkPath else {
+            // No path at all — `handlePathUpdate` will call `openSocket()` as soon as
+            // one reappears, instead of burning a doomed attempt every 30s until then.
+            return
+        }
 
         let delay = backoff
         backoff = min(backoff * 2, maxBackoff)
