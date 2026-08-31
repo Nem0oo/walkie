@@ -27,6 +27,67 @@ final class AudioSessionManager: NSObject, ObservableObject {
     private var isPlaying = false
     @Published private(set) var currentlyPlayingID: String?
 
+    override init() {
+        super.init()
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(handleInterruption(_:)),
+            name: AVAudioSession.interruptionNotification,
+            object: AVAudioSession.sharedInstance()
+        )
+    }
+
+    deinit {
+        NotificationCenter.default.removeObserver(self)
+    }
+
+    // A phone call, Siri, an alarm, etc. pauses our player(s) without ever calling
+    // audioPlayerDidFinishPlaying — so without this, `keepAlivePlayer` can stay paused
+    // (silently killing background execution) and, if a message was mid-playback,
+    // `isPlaying`/the duck window can stay stuck until the app is relaunched.
+    @objc private func handleInterruption(_ notification: Notification) {
+        guard let userInfo = notification.userInfo,
+              let typeValue = userInfo[AVAudioSessionInterruptionTypeKey] as? UInt,
+              let type = AVAudioSession.InterruptionType(rawValue: typeValue)
+        else { return }
+
+        switch type {
+        case .began:
+            break // system already paused playback; nothing to react to yet
+
+        case .ended:
+            let shouldResume: Bool
+            if let optionsValue = userInfo[AVAudioSessionInterruptionOptionKey] as? UInt {
+                shouldResume = AVAudioSession.InterruptionOptions(rawValue: optionsValue).contains(.shouldResume)
+            } else {
+                shouldResume = false
+            }
+
+            do {
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch {
+                print("AudioSessionManager: failed to reactivate session after interruption: \(error)")
+            }
+
+            // Must always come back, regardless of `shouldResume` — a paused keep-alive
+            // means iOS can suspend the process the moment it's backgrounded.
+            keepAlivePlayer?.play()
+
+            guard isPlaying else { return }
+            if shouldResume {
+                messagePlayer?.play()
+            } else {
+                // System says don't resume (e.g. Siri) — drop this message instead of
+                // leaving the queue frozen and the .duckOthers window stuck open.
+                messagePlayer?.stop()
+                finishPlayback()
+            }
+
+        @unknown default:
+            break
+        }
+    }
+
     func startKeepAlive() {
         guard keepAlivePlayer == nil else { return }
         guard let url = Bundle.main.url(forResource: "keepalive", withExtension: "caf") else {

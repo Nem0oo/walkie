@@ -6,17 +6,18 @@ enum ConnectionState {
     case connected
 }
 
-/// `URLSessionWebSocketTask` never surfaces inbound ping/pong frames to app code — the
-/// OS answers server-sent pings transparently and never tells the app it happened — so
-/// there is no passive way to detect "this connection went idle-dead." Instead we
-/// drive our own heartbeat: ping every ~20s, require a pong within 10s, and treat a
-/// timeout exactly like a `didCloseWith` event (cancel, reconnect with backoff).
-///
-/// This is independent of, but complementary to, the server's own 25s ping (see
-/// backend/src/ws/hub.ts): our heartbeat detects real liveness from the client's point
-/// of view, while the server's heartbeat resets nginx-proxy's idle timer in the
-/// server-to-client direction. Both are needed — neither alone covers both directions
-/// of the proxy's 60s idle timeout.
+/// Client-side heartbeat, deliberately slow (every 3 minutes, not every 20s like the
+/// old one): a normal dead connection already surfaces via `.receive()`'s completion
+/// failing, which triggers `scheduleReconnect` on its own — no ping needed for that. The
+/// one case this ping exists for is a *zombie* connection: a carrier NAT or firewall
+/// silently drops an idle socket without sending either side a FIN/RST, so `.receive()`
+/// never completes and the app just sits there. This client never sends anything else
+/// on the socket, so nothing else would ever surface that. A 3-minute ping bounds how
+/// long a zombie connection can go undetected, at a small fraction of the radio-wake
+/// cost the old 20s ping had — worth it as a safety net even though the original
+/// disconnects that motivated the 20s version turned out to be a LiveContainer artifact,
+/// not this. The server still runs its own 25s ping (see backend/src/ws/hub.ts) to keep
+/// nginx-proxy's idle timer alive in the server-to-client direction.
 final class WebSocketClient: NSObject, ObservableObject {
     @Published private(set) var state: ConnectionState = .disconnected
     // Surfaced in the UI — without Xcode/a Mac, console prints are otherwise invisible
@@ -144,7 +145,7 @@ final class WebSocketClient: NSObject, ObservableObject {
 
     private func startHeartbeat(for task: URLSessionWebSocketTask) {
         heartbeatTimer?.invalidate()
-        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+        heartbeatTimer = Timer.scheduledTimer(withTimeInterval: 180, repeats: true) { [weak self] _ in
             self?.sendPing(on: task)
         }
     }
@@ -155,7 +156,7 @@ final class WebSocketClient: NSObject, ObservableObject {
         task.sendPing { error in
             answered = (error == nil)
         }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 10) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
             guard let self, self.task === task, !answered else { return }
             self.scheduleReconnect(for: task)
         }
