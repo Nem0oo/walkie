@@ -145,24 +145,31 @@ final class WebSocketClient: NSObject, ObservableObject {
     // newer `connect()`/reconnect has already superseded is not allowed to touch shared
     // state or cancel the current task. See the note on `connect(code:)`.
 
+    // `receive`/`sendPing` completions arrive on URLSession's private delegate queue, but
+    // `state`, `backoff` and the timers are also touched from the main thread (path
+    // monitor, public API, SwiftUI). Every completion hops to main before touching any
+    // of it, so all mutable state lives on a single thread.
     private func listen(on task: URLSessionWebSocketTask) {
         task.receive { [weak self] result in
-            guard let self, self.task === task else { return }
-            switch result {
-            case .success(let message):
-                self.backoff = 1 // reset on any successful traffic
-                self.state = .connected
-                self.handle(message)
-                self.listen(on: task) // receive() is one-shot — re-arm for the next frame
-            case .failure(let error):
-                let nsError = error as NSError
-                var detail = "\(nsError.domain) \(nsError.code): \(nsError.localizedDescription)"
-                if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
-                    detail += " ← \(underlying.domain) \(underlying.code): \(underlying.localizedDescription)"
+            DispatchQueue.main.async {
+                guard let self, self.task === task else { return }
+                switch result {
+                case .success(let message):
+                    self.backoff = 1 // reset on any successful traffic
+                    self.state = .connected
+                    self.lastErrorDescription = nil
+                    self.handle(message)
+                    self.listen(on: task) // receive() is one-shot — re-arm for the next frame
+                case .failure(let error):
+                    let nsError = error as NSError
+                    var detail = "\(nsError.domain) \(nsError.code): \(nsError.localizedDescription)"
+                    if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {
+                        detail += " ← \(underlying.domain) \(underlying.code): \(underlying.localizedDescription)"
+                    }
+                    print("WebSocketClient: connection failed: \(detail)")
+                    self.lastErrorDescription = detail
+                    self.scheduleReconnect(for: task)
                 }
-                print("WebSocketClient: connection failed: \(detail)")
-                self.lastErrorDescription = detail
-                self.scheduleReconnect(for: task)
             }
         }
     }
@@ -185,7 +192,7 @@ final class WebSocketClient: NSObject, ObservableObject {
         guard self.task === task else { return }
         var answered = false
         task.sendPing { error in
-            answered = (error == nil)
+            DispatchQueue.main.async { answered = (error == nil) }
         }
         DispatchQueue.main.asyncAfter(deadline: .now() + 20) { [weak self] in
             guard let self, self.task === task, !answered else { return }
@@ -225,6 +232,7 @@ extension WebSocketClient: URLSessionWebSocketDelegate {
             guard let self, self.task === webSocketTask else { return }
             self.state = .connected
             self.backoff = 1
+            self.lastErrorDescription = nil
         }
     }
 }

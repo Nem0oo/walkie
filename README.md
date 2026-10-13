@@ -82,7 +82,7 @@ Aucun secret dans `.env` : pas d'authentification forte en v1, cohérent avec le
 
 `/home/nem0oo/srv/nginx` (le nginx-proxy + acme-companion existant, non modifié par ce projet) n'a **aucun override** de `client_max_body_size` (défaut nginx = 1 Mio) ni de `proxy_read_timeout` (défaut = 60s). Le design tient compte de ça sans toucher à cette config :
 - La page web plafonne les enregistrements à **120s** et force un débit de **24 kbps mono**, soit ~360 Ko max par message — largement sous la limite d'1 Mio.
-- Le hub WebSocket ping les clients toutes les 25s côté serveur, l'app iOS ping le serveur toutes les 20s côté client — les deux gardent la connexion sous le seuil d'inactivité de 60s du proxy.
+- Le hub WebSocket ping les clients toutes les 25s côté serveur, l'app iOS ping le serveur toutes les 3 min côté client (simple filet de sécurité contre les connexions zombies) — les deux gardent la connexion sous le seuil d'inactivité de 60s du proxy.
 
 Si un jour tu veux des messages plus longs, la vraie limite à changer est `CLIENT_MAX_BODY_SIZE` sur le conteneur `nginx-proxy` (dans l'autre repo), pas `MAX_UPLOAD_BYTES` ici.
 

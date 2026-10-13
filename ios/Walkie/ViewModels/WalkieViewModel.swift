@@ -24,6 +24,12 @@ final class WalkieViewModel: ObservableObject {
     // itself guarded against redundant calls, but avoiding a duplicate `pair()`/
     // `catchUp()` pass here too is one less thing to reason about.
     private var hasStarted = false
+    private var cancellables = Set<AnyCancellable>()
+    // The same message can reach us twice (WebSocket push + REST catch-up racing right
+    // after a reconnect). `messages` only learns about an id once its download finished,
+    // so ids still being downloaded are tracked here to keep a second copy out.
+    private var inFlightIDs = Set<String>()
+    private var isCatchingUp = false
 
     var shareURL: URL? {
         guard let code = channelCode, let serverString = serverURLString, let base = URL(string: serverString) else {
@@ -63,12 +69,29 @@ final class WalkieViewModel: ObservableObject {
         }
         webSocket.$state
             .receive(on: DispatchQueue.main)
-            .assign(to: &$connectionState)
+            .sink { [weak self] state in
+                guard let self else { return }
+                let wasConnected = self.connectionState == .connected
+                self.connectionState = state
+                // Anything sent while the socket was down was never pushed to us — and
+                // in the background `onScenePhaseChange` won't fire — so pull it from
+                // REST as soon as the socket is back.
+                if state == .connected, !wasConnected, self.channelCode != nil {
+                    Task { await self.catchUp() }
+                }
+            }
+            .store(in: &cancellables)
         webSocket.$lastErrorDescription
-            .compactMap { $0 }
             .receive(on: DispatchQueue.main)
-            .map { "WebSocket : \($0)" }
-            .assign(to: &$lastError)
+            .sink { [weak self] description in
+                guard let self else { return }
+                if let description {
+                    self.lastError = "WebSocket : \(description)"
+                } else if self.lastError?.hasPrefix("WebSocket : ") == true {
+                    self.lastError = nil // socket recovered — don't leave its stale error up
+                }
+            }
+            .store(in: &cancellables)
         audio.$currentlyPlayingID
             .receive(on: DispatchQueue.main)
             .assign(to: &$playingMessageID)
@@ -116,7 +139,9 @@ final class WalkieViewModel: ObservableObject {
     }
 
     private func catchUp() async {
-        guard let code = channelCode else { return }
+        guard let code = channelCode, !isCatchingUp else { return }
+        isCatchingUp = true
+        defer { isCatchingUp = false }
         do {
             let fetched = try await api.fetchMessages(code: code, since: store.lastSeenMessageId)
             for message in fetched {
@@ -129,6 +154,9 @@ final class WalkieViewModel: ObservableObject {
     }
 
     private func handleIncoming(_ message: VoiceMessage) async {
+        guard !messages.contains(where: { $0.id == message.id }),
+              inFlightIDs.insert(message.id).inserted else { return }
+        defer { inFlightIDs.remove(message.id) }
         do {
             let downloadedURL = try await DownloadManager.shared.downloadToLocalFile(from: message.url)
             let stored = try history.save(
