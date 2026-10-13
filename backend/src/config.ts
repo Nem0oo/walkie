@@ -11,11 +11,21 @@ function int(name: string, fallback: number): number {
   return n;
 }
 
+function list(name: string): string[] {
+  return (process.env[name] ?? "")
+    .split(",")
+    .map((v) => v.trim().replace(/\/+$/, ""))
+    .filter(Boolean);
+}
+
 export const config = {
   port: int("PORT", 3000),
   dataDir: path.resolve(process.env.DATA_DIR ?? "/data"),
   maxUploadBytes: int("MAX_UPLOAD_BYTES", 8 * 1024 * 1024),
   channelCodeLength: int("CHANNEL_CODE_LENGTH", 10),
+  // Comma-separated browser origins allowed to call the API cross-origin (e.g. another
+  // site embedding the sender page). Empty by default: same-origin only.
+  allowedOrigins: new Set(list("ALLOWED_ORIGINS")),
   publicBaseUrl: (process.env.PUBLIC_BASE_URL ?? "http://localhost:3000").replace(/\/+$/, ""),
 };
 
