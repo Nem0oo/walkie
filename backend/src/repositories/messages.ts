@@ -33,11 +33,17 @@ export function getMessageById(id: string): MessageRow | undefined {
 }
 
 /**
- * Catch-up query for the iOS REST fallback. `sinceId` unresolved (unknown/garbage)
- * returns [] rather than guessing at a fallback window.
+ * Catch-up query for the iOS REST fallback. No `sinceId` means the client has never
+ * received anything on this channel, so everything it missed is returned — otherwise
+ * messages sent before its first successful delivery could never be recovered. An
+ * unresolved (unknown/garbage) `sinceId` returns [] rather than guessing at a window.
  */
 export function listMessagesSince(channelCode: string, sinceId: string | undefined): MessageRow[] {
-  if (!sinceId) return [];
+  if (!sinceId) {
+    return db
+      .prepare<[string], MessageRow>("SELECT * FROM messages WHERE channel_code = ? ORDER BY seq ASC")
+      .all(channelCode);
+  }
 
   const cursor = db
     .prepare<[string, string], { seq: number }>("SELECT seq FROM messages WHERE id = ? AND channel_code = ?")
