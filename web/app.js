@@ -61,6 +61,7 @@
     mediaRecorder.onstop = () => {
       stream.getTracks().forEach((t) => t.stop());
       recordedBlob = new Blob(chunks, { type: mediaRecorder.mimeType || mimeType || "audio/webm" });
+      clearPreview();
       preview.src = URL.createObjectURL(recordedBlob);
       preview.hidden = false;
       reviewActions.hidden = false;
@@ -83,10 +84,15 @@
     if (mediaRecorder && mediaRecorder.state !== "inactive") mediaRecorder.stop();
   }
 
+  function clearPreview() {
+    if (preview.src.startsWith("blob:")) URL.revokeObjectURL(preview.src);
+    preview.removeAttribute("src");
+  }
+
   function resetRecorder() {
     recordedBlob = null;
     preview.hidden = true;
-    preview.removeAttribute("src");
+    clearPreview();
     reviewActions.hidden = true;
     recordBtn.hidden = false;
     timerEl.hidden = true;
@@ -111,6 +117,22 @@
 
   discardBtn.addEventListener("click", resetRecorder);
 
+  class UploadError extends Error {
+    constructor(status) {
+      super(`upload_failed_${status}`);
+      this.status = status;
+    }
+  }
+
+  function errorMessageFor(err) {
+    if (err instanceof UploadError) {
+      if (err.status === 413) return "Message trop volumineux. Enregistrez un message plus court.";
+      if (err.status === 422) return "Format audio non pris en charge par le serveur.";
+      return "Le serveur a rencontré une erreur. Réessayez dans un instant.";
+    }
+    return "Échec de l'envoi. Vérifiez votre connexion et réessayez.";
+  }
+
   async function uploadRecording() {
     if (!recordedBlob) return;
     showState("uploading");
@@ -121,10 +143,15 @@
       form.append("audio", recordedBlob, `recording.${ext}`);
       form.append("sender", senderInput.value.trim());
       const res = await fetch(`/channels/${code}/messages`, { method: "POST", body: form });
-      if (!res.ok) throw new Error(`upload_failed_${res.status}`);
+      if (res.status === 404) {
+        // Channel revoked (or never existed) since the page was loaded — retrying is useless.
+        showState("invalid");
+        return;
+      }
+      if (!res.ok) throw new UploadError(res.status);
       showState("sent");
     } catch (err) {
-      el("error-message").textContent = "Échec de l'envoi. Vérifiez votre connexion et réessayez.";
+      el("error-message").textContent = errorMessageFor(err);
       showState("error");
     }
   }

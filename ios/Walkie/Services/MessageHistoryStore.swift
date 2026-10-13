@@ -8,6 +8,10 @@ final class MessageHistoryStore {
 
     private let directory: URL
     private let indexFile: URL
+    // In-memory copy of index.json (chronological), loaded once — every save/delete used
+    // to re-read and re-decode the whole file from disk. The file is only ever written
+    // by this process, so the cache can't go stale.
+    private var index: [StoredMessage] = []
 
     init() {
         let documents = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
@@ -20,6 +24,10 @@ final class MessageHistoryStore {
         excluded.isExcludedFromBackup = true
         var mutableDirectory = directory
         try? mutableDirectory.setResourceValues(excluded)
+
+        if let data = try? Data(contentsOf: indexFile) {
+            index = (try? JSONDecoder().decode([StoredMessage].self, from: data)) ?? []
+        }
     }
 
     func fileURL(for message: StoredMessage) -> URL {
@@ -56,16 +64,13 @@ final class MessageHistoryStore {
         try FileManager.default.moveItem(at: downloadedFileURL, to: destination)
 
         let stored = StoredMessage(id: id, sender: sender, createdAt: createdAt, filename: filename)
-        var all = loadAll()
-        all.append(stored)
-        try save(all)
+        try persist(index + [stored])
         return stored
     }
 
     /// Chronological order (oldest first) — callers that want most-recent-first reverse it.
     func loadAll() -> [StoredMessage] {
-        guard let data = try? Data(contentsOf: indexFile) else { return [] }
-        return (try? JSONDecoder().decode([StoredMessage].self, from: data)) ?? []
+        index
     }
 
     /// Removes a single message's audio file and its index entry. Doesn't touch
@@ -73,14 +78,15 @@ final class MessageHistoryStore {
     /// the next catch-up.
     func delete(_ message: StoredMessage) throws {
         try? FileManager.default.removeItem(at: fileURL(for: message))
-        var all = loadAll()
-        all.removeAll { $0.id == message.id }
-        try save(all)
+        try persist(index.filter { $0.id != message.id })
     }
 
-    private func save(_ messages: [StoredMessage]) throws {
+    // Writes first, swaps the cache only on success — a failed write leaves memory and
+    // disk agreeing on the old index.
+    private func persist(_ messages: [StoredMessage]) throws {
         let data = try JSONEncoder().encode(messages)
         try data.write(to: indexFile, options: .atomic)
+        index = messages
     }
 
     private static let isoFormatter: ISO8601DateFormatter = {

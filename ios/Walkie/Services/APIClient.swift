@@ -41,13 +41,6 @@ final class APIClient {
         return try JSONDecoder().decode(Channel.self, from: data)
     }
 
-    func channelExists(code: String) async throws -> Bool {
-        let url = try baseURL.appendingPathComponent("channels").appendingPathComponent(code)
-        let (_, response) = try await session.data(from: url)
-        guard let http = response as? HTTPURLResponse else { throw APIError.invalidResponse }
-        return http.statusCode == 200
-    }
-
     /// Invalidates the current channel code — everyone holding the old link loses
     /// access. Doesn't return a replacement; callers re-run the normal pairing flow.
     func revokeChannel(code: String) async throws {
