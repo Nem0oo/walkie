@@ -19,11 +19,10 @@ final class WalkieViewModel: ObservableObject {
     private let history = MessageHistoryStore.shared
     private let webSocket = WebSocketClient()
     private let audio = AudioSessionManager()
-    // `.onAppear` (which calls `start()`) can fire more than once for the same view —
-    // e.g. popping back from HistoryView re-triggers it. `WebSocketClient.connect` is
-    // itself guarded against redundant calls, but avoiding a duplicate `pair()`/
-    // `catchUp()` pass here too is one less thing to reason about.
-    private var hasStarted = false
+    // The pairing / connect / catch-up pass. `start()` cancels the previous one before
+    // launching a new one, so restarting (e.g. after a server change) can never leave two
+    // `pair()` loops racing to create two channels.
+    private var startTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
     // The same message can reach us twice (WebSocket push + REST catch-up racing right
     // after a reconnect). `messages` only learns about an id once its download finished,
@@ -54,14 +53,6 @@ final class WalkieViewModel: ObservableObject {
         audio.startKeepAlive()
         messages = Array(history.loadAll().reversed())
 
-        // Pre-v-configuration-tab installs have a paired `channelCode` but never wrote a
-        // `serverURLString` (that setting didn't exist yet) — they were always pointed
-        // at the maintainer's own server. Grandfather them in rather than stranding
-        // existing users on "no server configured" after an update. Fresh installs
-        // (no channelCode either) get no default: see `PersistenceStore.serverURLString`.
-        if store.serverURLString == nil, store.channelCode != nil {
-            store.serverURLString = "https://walkie.gcourtot.fr"
-        }
         serverURLString = store.serverURLString
 
         webSocket.onMessage = { [weak self] message in
@@ -95,13 +86,14 @@ final class WalkieViewModel: ObservableObject {
         audio.$currentlyPlayingID
             .receive(on: DispatchQueue.main)
             .assign(to: &$playingMessageID)
+
+        start()
     }
 
     func start() {
-        guard !hasStarted else { return }
         guard serverURLString != nil else { return } // wait for Configuration tab
-        hasStarted = true
-        Task {
+        startTask?.cancel()
+        startTask = Task {
             if let existingCode = store.channelCode {
                 channelCode = existingCode
                 webSocket.connect(code: existingCode)
@@ -113,7 +105,9 @@ final class WalkieViewModel: ObservableObject {
     }
 
     func onScenePhaseChange(_ phase: ScenePhase) {
-        guard phase == .active, channelCode != nil else { return }
+        guard phase == .active else { return }
+        audio.startKeepAlive() // no-op if already running; retries a failed first start
+        guard channelCode != nil else { return }
         Task { await catchUp() }
     }
 
@@ -123,9 +117,10 @@ final class WalkieViewModel: ObservableObject {
     // WebSocketClient's reconnect (1s → 2s → ... → 30s cap) until it succeeds.
     private func pair() async {
         var backoff: TimeInterval = 1
-        while channelCode == nil {
+        while channelCode == nil, !Task.isCancelled {
             do {
                 let channel = try await api.createChannel()
+                guard !Task.isCancelled else { return }
                 store.channelCode = channel.code
                 channelCode = channel.code
                 webSocket.connect(code: channel.code)
@@ -251,7 +246,6 @@ final class WalkieViewModel: ObservableObject {
         serverURLString = trimmed
         channelCode = nil
         lastError = nil
-        hasStarted = false
         start()
     }
 }

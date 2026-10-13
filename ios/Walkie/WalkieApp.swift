@@ -9,7 +9,6 @@ struct WalkieApp: App {
         WindowGroup {
             RootTabView()
                 .environmentObject(viewModel)
-                .onAppear { viewModel.start() }
         }
         // Single-parameter form (not the iOS 17 two-parameter variant) — this app
         // targets iOS 16+.

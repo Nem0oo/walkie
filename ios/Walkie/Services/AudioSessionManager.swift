@@ -71,7 +71,11 @@ final class AudioSessionManager: NSObject, ObservableObject {
 
             // Must always come back, regardless of `shouldResume` — a paused keep-alive
             // means iOS can suspend the process the moment it's backgrounded.
-            keepAlivePlayer?.play()
+            if keepAlivePlayer == nil {
+                startKeepAlive() // the initial start failed — this is a chance to recover
+            } else {
+                keepAlivePlayer?.play()
+            }
 
             guard isPlaying else { return }
             if shouldResume {
