@@ -88,8 +88,7 @@ final class WebSocketClient: NSObject, ObservableObject {
     }
 
     // `connect(code:)` can be called more than once for the same WebSocketClient
-    // instance — e.g. SwiftUI can fire `.onAppear` twice (a known quirk with
-    // NavigationStack: popping back to a view re-triggers it), which would otherwise
+    // instance (e.g. a restarted pairing flow), which would otherwise
     // call this while a handshake is already in flight or connected. Without this
     // guard, a second call creates a second `URLSessionWebSocketTask` that overwrites
     // `self.task`; the *first* task is left orphaned but still alive, and when its
@@ -110,6 +109,10 @@ final class WebSocketClient: NSObject, ObservableObject {
         heartbeatTimer?.invalidate()
         task?.cancel(with: .goingAway, reason: nil)
         state = .disconnected
+        // Forget the channel too: otherwise the path monitor would reopen a socket on a
+        // code that was just revoked (or issued by a server we've switched away from) the
+        // moment connectivity returns.
+        channelCode = nil
     }
 
     private func openSocket() {
