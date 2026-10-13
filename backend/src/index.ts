@@ -13,14 +13,13 @@ import { startHeartbeat, closeAll } from "./ws/hub";
 
 const app = express();
 
-// CORS minimal (pas de dépendance "cors") : seule la page tracking.gcourtot.fr appelle
-// ces endpoints directement depuis le navigateur pour l'envoi de messages vocaux
-// in-page. Le code de channel reste la seule autorisation (cf. channels.ts) — ceci ne
-// fait qu'autoriser le navigateur à lire la réponse pour cette origine précise.
-const ALLOWED_ORIGINS = new Set(["https://tracking.gcourtot.fr"]);
+// CORS minimal (pas de dépendance "cors") : seules les origines listées dans
+// ALLOWED_ORIGINS peuvent appeler ces endpoints depuis un navigateur. Le code de channel
+// reste la seule autorisation (cf. channels.ts) — ceci ne fait qu'autoriser le
+// navigateur à lire la réponse pour ces origines précises.
 app.use((req, res, next) => {
   const origin = req.headers.origin;
-  if (origin && ALLOWED_ORIGINS.has(origin)) {
+  if (origin && config.allowedOrigins.has(origin)) {
     res.setHeader("Access-Control-Allow-Origin", origin);
     res.setHeader("Vary", "Origin");
   }
