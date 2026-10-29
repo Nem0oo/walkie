@@ -1,49 +1,9 @@
-import http from "node:http";
-import path from "node:path";
-import express from "express";
-import { config, paths } from "./config";
+import { config } from "./config";
 import { db } from "./db";
-import { channelsRouter } from "./routes/channels";
-import { messagesRouter } from "./routes/messages";
-import { blobsRouter } from "./routes/blobs";
-import { healthRouter } from "./routes/health";
-import { errorHandler } from "./middleware/errorHandler";
-import { handleUpgrade } from "./ws/upgrade";
+import { createServer } from "./app";
 import { startHeartbeat, closeAll } from "./ws/hub";
 
-const app = express();
-
-// CORS minimal (pas de dépendance "cors") : seules les origines listées dans
-// ALLOWED_ORIGINS peuvent appeler ces endpoints depuis un navigateur. Le code de channel
-// reste la seule autorisation (cf. channels.ts) — ceci ne fait qu'autoriser le
-// navigateur à lire la réponse pour ces origines précises.
-app.use((req, res, next) => {
-  const origin = req.headers.origin;
-  if (origin && config.allowedOrigins.has(origin)) {
-    res.setHeader("Access-Control-Allow-Origin", origin);
-    res.setHeader("Vary", "Origin");
-  }
-  next();
-});
-
-app.get("/send/:code", (_req, res) => {
-  res.sendFile(path.join(paths.staticDir, "send.html"));
-});
-
-app.use(express.static(paths.staticDir));
-
-app.use(channelsRouter);
-app.use(messagesRouter);
-app.use(blobsRouter);
-app.use(healthRouter);
-
-app.use(errorHandler);
-
-const server = http.createServer(app);
-server.on("upgrade", (req, socket, head) => {
-  handleUpgrade(req, socket, head);
-});
-
+const server = createServer();
 const heartbeat = startHeartbeat();
 
 server.listen(config.port, () => {

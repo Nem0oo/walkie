@@ -128,6 +128,8 @@
     if (err instanceof UploadError) {
       if (err.status === 413) return "Message trop volumineux. Enregistrez un message plus court.";
       if (err.status === 422) return "Format audio non pris en charge par le serveur.";
+      if (err.status === 429) return "Trop de messages envoyés. Réessayez dans quelques minutes.";
+      if (err.status === 503) return "Le serveur est occupé. Réessayez dans un instant.";
       return "Le serveur a rencontré une erreur. Réessayez dans un instant.";
     }
     return "Échec de l'envoi. Vérifiez votre connexion et réessayez.";

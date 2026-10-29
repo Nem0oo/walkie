@@ -29,10 +29,14 @@ COPY --from=build /app/backend/dist ./dist
 COPY web ./dist/static
 
 RUN mkdir -p /data/blobs /data/db
+COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 EXPOSE 3000
 
 HEALTHCHECK --interval=15s --timeout=5s --retries=5 \
   CMD wget --spider -q http://localhost:3000/health || exit 1
 
+# Starts as root only to fix ownership of the /data bind mount, then drops to `node`
+# (see docker-entrypoint.sh) — ffmpeg decodes untrusted uploads and must not run as root.
+ENTRYPOINT ["docker-entrypoint.sh"]
 CMD ["node", "dist/index.js"]

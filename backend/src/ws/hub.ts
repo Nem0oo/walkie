@@ -21,7 +21,9 @@ export function subscribe(channelCode: string, ws: TrackedSocket): void {
     ws.isAlive = true;
   });
   ws.on("close", () => {
-    subscribers.get(channelCode)?.delete(ws);
+    const sockets = subscribers.get(channelCode);
+    sockets?.delete(ws);
+    if (sockets?.size === 0) subscribers.delete(channelCode);
   });
   ws.on("error", (err) => {
     log(`[ws] socket error: ${err.message}`);
@@ -35,8 +37,8 @@ export function closeAll(): void {
 }
 
 // Called on revoke — closes any live subscriber for that one channel so a socket
-// opened just before revocation doesn't linger; the client's own reconnect logic
-// will then hit the now-404'd upgrade endpoint and give up cleanly.
+// opened just before revocation doesn't linger. A client that reconnects hits the
+// now-404'd upgrade endpoint, which the iOS app treats as "channel gone" and re-pairs.
 export function closeChannel(channelCode: string): void {
   for (const ws of subscribers.get(channelCode) ?? []) ws.close();
 }

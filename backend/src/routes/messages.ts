@@ -2,6 +2,8 @@ import fs from "node:fs";
 import { Router } from "express";
 import { config } from "../config";
 import { channelExists } from "../middleware/channelExists";
+import { rateLimit } from "../middleware/rateLimit";
+import { requireOwner } from "../middleware/requireOwner";
 import { upload } from "../middleware/upload";
 import { insertMessage, listMessagesSince, type MessageRow } from "../repositories/messages";
 import { blobFilename, blobPath, ensureChannelDir } from "../services/storage";
@@ -20,7 +22,10 @@ function toDto(row: MessageRow) {
   };
 }
 
-messagesRouter.post("/channels/:code/messages", channelExists, upload.single("audio"), async (req, res, next) => {
+// Each upload costs an ffmpeg run — generous for a person, tight for a script.
+const uploadLimit = rateLimit({ windowMs: 10 * 60 * 1000, max: 30 });
+
+messagesRouter.post("/channels/:code/messages", uploadLimit, channelExists, upload.single("audio"), async (req, res, next) => {
   if (!req.file) {
     res.status(400).json({ error: "missing_audio" });
     return;
@@ -56,7 +61,7 @@ messagesRouter.post("/channels/:code/messages", channelExists, upload.single("au
   }
 });
 
-messagesRouter.get("/channels/:code/messages", channelExists, (req, res) => {
+messagesRouter.get("/channels/:code/messages", channelExists, requireOwner, (req, res) => {
   const since = typeof req.query.since === "string" ? req.query.since : undefined;
   const rows = listMessagesSince(req.params.code, since);
   res.json(rows.map(toDto));

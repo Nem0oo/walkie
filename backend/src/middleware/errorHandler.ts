@@ -1,6 +1,6 @@
 import type { NextFunction, Request, Response } from "express";
 import multer from "multer";
-import { TranscodeError } from "../services/transcode";
+import { TranscodeError, TranscoderBusyError } from "../services/transcode";
 
 export function errorHandler(err: unknown, _req: Request, res: Response, _next: NextFunction): void {
   if (err instanceof multer.MulterError) {
@@ -14,6 +14,12 @@ export function errorHandler(err: unknown, _req: Request, res: Response, _next: 
 
   if (err instanceof TranscodeError) {
     res.status(422).json({ error: "unsupported_audio" });
+    return;
+  }
+
+  if (err instanceof TranscoderBusyError) {
+    res.setHeader("Retry-After", "30");
+    res.status(503).json({ error: "transcoder_busy" });
     return;
   }
 

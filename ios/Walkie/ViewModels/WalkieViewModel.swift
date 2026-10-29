@@ -24,11 +24,14 @@ final class WalkieViewModel: ObservableObject {
     // `pair()` loops racing to create two channels.
     private var startTask: Task<Void, Never>?
     private var cancellables = Set<AnyCancellable>()
-    // The same message can reach us twice (WebSocket push + REST catch-up racing right
-    // after a reconnect). `messages` only learns about an id once its download finished,
-    // so ids still being downloaded are tracked here to keep a second copy out.
-    private var inFlightIDs = Set<String>()
+    // Only one catch-up pass runs at a time (so a message can't be downloaded twice, and
+    // the cursor only ever moves forward). A trigger arriving mid-pass sets
+    // `catchUpRequested`, and the running pass loops once more instead of dropping it.
     private var isCatchingUp = false
+    private var catchUpRequested = false
+
+    private static let channelReplacedMessage =
+        "L'ancien lien ne fonctionne plus sur le serveur : un nouveau lien a été créé, pense à le repartager."
 
     var shareURL: URL? {
         guard let code = channelCode, let serverString = serverURLString, let base = URL(string: serverString) else {
@@ -55,8 +58,14 @@ final class WalkieViewModel: ObservableObject {
 
         serverURLString = store.serverURLString
 
-        webSocket.onMessage = { [weak self] message in
-            Task { @MainActor in await self?.handleIncoming(message) }
+        // A push is only a wake-up signal: the message itself is fetched by the REST
+        // catch-up, which delivers in server order from the persisted cursor. Handling the
+        // push payload directly would let a failed message be skipped by a later success.
+        webSocket.onMessage = { [weak self] _ in
+            Task { @MainActor in await self?.catchUp() }
+        }
+        webSocket.onChannelGone = { [weak self] in
+            Task { @MainActor in self?.handleChannelGone() }
         }
         webSocket.$state
             .receive(on: DispatchQueue.main)
@@ -94,11 +103,17 @@ final class WalkieViewModel: ObservableObject {
         guard serverURLString != nil else { return } // wait for Configuration tab
         startTask?.cancel()
         startTask = Task {
-            if let existingCode = store.channelCode {
+            if let existingCode = store.channelCode, let ownerToken = store.ownerToken {
                 channelCode = existingCode
-                webSocket.connect(code: existingCode)
+                webSocket.connect(code: existingCode, ownerToken: ownerToken)
                 await catchUp()
             } else {
+                if store.channelCode != nil {
+                    // Paired before owner tokens existed: the server won't let this app
+                    // read that channel anymore, so move to a fresh one.
+                    forgetChannel()
+                    lastError = Self.channelReplacedMessage
+                }
                 await pair()
             }
         }
@@ -122,8 +137,9 @@ final class WalkieViewModel: ObservableObject {
                 let channel = try await api.createChannel()
                 guard !Task.isCancelled else { return }
                 store.channelCode = channel.code
+                store.ownerToken = channel.owner_token
                 channelCode = channel.code
-                webSocket.connect(code: channel.code)
+                webSocket.connect(code: channel.code, ownerToken: channel.owner_token)
                 return
             } catch {
                 print("WalkieViewModel: pairing failed, retrying in \(backoff)s: \(error)")
@@ -134,44 +150,74 @@ final class WalkieViewModel: ObservableObject {
     }
 
     private func catchUp() async {
-        guard let code = channelCode, !isCatchingUp else { return }
+        catchUpRequested = true
+        guard !isCatchingUp else { return } // the running pass will loop once more
         isCatchingUp = true
         defer { isCatchingUp = false }
-        do {
-            let fetched = try await api.fetchMessages(code: code, since: store.lastSeenMessageId)
-            for message in fetched {
-                await handleIncoming(message)
+
+        while catchUpRequested, let code = channelCode, let ownerToken = store.ownerToken {
+            catchUpRequested = false
+            do {
+                let fetched = try await api.fetchMessages(code: code, ownerToken: ownerToken, since: store.lastSeenMessageId)
+                for message in fetched {
+                    // The cursor only moves past a message once it's safely stored, and
+                    // stops at the first failure: `since=<lastSeenMessageId>` never
+                    // re-delivers anything at or before the cursor, so skipping over a
+                    // failed message to store a later one would lose it for good. The
+                    // next trigger (push, reconnect, foreground) retries from there.
+                    guard channelCode == code, await handleIncoming(message) else { break }
+                    store.lastSeenMessageId = message.id
+                }
+            } catch let error as APIError where error.isChannelGone {
+                handleChannelGone()
+                return
+            } catch {
+                print("WalkieViewModel: catch-up failed: \(error)")
+                lastError = "Rattrapage échoué : \(error.localizedDescription)"
             }
-        } catch {
-            print("WalkieViewModel: catch-up failed: \(error)")
-            lastError = "Rattrapage échoué : \(error.localizedDescription)"
         }
     }
 
-    private func handleIncoming(_ message: VoiceMessage) async {
-        guard !messages.contains(where: { $0.id == message.id }),
-              inFlightIDs.insert(message.id).inserted else { return }
-        defer { inFlightIDs.remove(message.id) }
+    /// Downloads, stores and queues one message for playback. Returns whether it is now
+    /// stored (including when it already was), i.e. whether the cursor may move past it.
+    private func handleIncoming(_ message: VoiceMessage) async -> Bool {
+        if messages.contains(where: { $0.id == message.id }) { return true }
+        guard let ownerToken = store.ownerToken else { return false }
         do {
-            let downloadedURL = try await DownloadManager.shared.downloadToLocalFile(from: message.url)
+            let downloadedURL = try await DownloadManager.shared.downloadToLocalFile(from: message.url, ownerToken: ownerToken)
             let stored = try history.save(
                 id: message.id,
                 sender: message.sender ?? "Anonyme",
                 createdAt: message.created_at,
                 downloadedFileURL: downloadedURL
             )
-            // Only mark as seen once actually persisted — marking it earlier would let a
-            // transient download/save failure silently and permanently drop the message,
-            // since the REST catch-up (`since=<lastSeenMessageId>`) would never re-deliver
-            // anything at or before this id.
-            store.lastSeenMessageId = message.id
             messages.insert(stored, at: 0)
             lastError = nil
             audio.enqueue(id: stored.id, fileURL: history.fileURL(for: stored))
+            return true
         } catch {
             print("WalkieViewModel: failed to handle message \(message.id): \(error)")
             lastError = "Message non lu (\(message.sender ?? "Anonyme")) : \(error.localizedDescription)"
+            return false
         }
+    }
+
+    /// The server answered 401/404 for our channel (revoked from elsewhere, database
+    /// reset, ...): retrying forever would leave the app silently deaf, so drop the
+    /// channel and pair a new one — the user has to reshare the new link.
+    private func handleChannelGone() {
+        guard channelCode != nil else { return }
+        forgetChannel()
+        lastError = Self.channelReplacedMessage
+        start()
+    }
+
+    private func forgetChannel() {
+        webSocket.disconnect()
+        store.channelCode = nil
+        store.ownerToken = nil
+        store.lastSeenMessageId = nil
+        channelCode = nil
     }
 
     /// Replays a message from history — reuses the same serial playback queue as live
@@ -201,23 +247,22 @@ final class WalkieViewModel: ObservableObject {
     /// normal pairing flow to get a fresh one — deliberately reuses `pair()`'s own
     /// retry/backoff rather than duplicating that logic here.
     func revokeChannelAndRepair() async {
-        guard let code = channelCode else { return }
+        guard let code = channelCode, let ownerToken = store.ownerToken else { return }
         isRevoking = true
         defer { isRevoking = false }
 
         do {
-            try await api.revokeChannel(code: code)
+            try await api.revokeChannel(code: code, ownerToken: ownerToken)
+        } catch let error as APIError where error.isChannelGone {
+            // Already gone server-side — nothing left to cut off, just pair a new one.
         } catch {
             print("WalkieViewModel: revoke failed: \(error)")
             lastError = "Révocation échouée : \(error.localizedDescription)"
             return
         }
 
-        webSocket.disconnect()
-        store.channelCode = nil
-        store.lastSeenMessageId = nil
-        channelCode = nil
-        await pair()
+        forgetChannel()
+        start() // through `startTask`, so it can't race another pairing loop
     }
 
     /// Points the app at a different backend. Distributed copies of this app must never
@@ -239,12 +284,9 @@ final class WalkieViewModel: ObservableObject {
         }
         guard trimmed != store.serverURLString else { return }
 
-        webSocket.disconnect()
+        forgetChannel()
         store.serverURLString = trimmed
-        store.channelCode = nil
-        store.lastSeenMessageId = nil
         serverURLString = trimmed
-        channelCode = nil
         lastError = nil
         start()
     }
