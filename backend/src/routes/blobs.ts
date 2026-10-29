@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import { Router } from "express";
 import { channelExists } from "../middleware/channelExists";
+import { requireOwner } from "../middleware/requireOwner";
 import { blobPath } from "../services/storage";
 
 export const blobsRouter = Router();
@@ -9,7 +10,7 @@ export const blobsRouter = Router();
 // anything else before it ever reaches the filesystem (path traversal guard).
 const SAFE_FILENAME = /^[A-Za-z0-9_-]+\.m4a$/;
 
-blobsRouter.get("/channels/:code/blobs/:filename", channelExists, (req, res) => {
+blobsRouter.get("/channels/:code/blobs/:filename", channelExists, requireOwner, (req, res) => {
   if (!SAFE_FILENAME.test(req.params.filename)) {
     res.status(400).json({ error: "invalid_filename" });
     return;

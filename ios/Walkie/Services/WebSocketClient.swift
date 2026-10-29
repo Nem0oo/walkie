@@ -26,6 +26,10 @@ final class WebSocketClient: NSObject, ObservableObject {
     @Published private(set) var lastErrorDescription: String?
 
     var onMessage: ((VoiceMessage) -> Void)?
+    /// The handshake was refused with 401/404: the channel is gone (revoked, server
+    /// database reset) or this app isn't its owner. Reconnecting can't fix that, so the
+    /// client stops and leaves it to the owner of this object to re-pair.
+    var onChannelGone: (() -> Void)?
 
     // Dedicated session, NOT `.shared`: nginx-proxy negotiates HTTP/2 (ALPN) for this
     // host by default, and reusing `URLSession.shared` — already holding a pooled H2
@@ -52,6 +56,7 @@ final class WebSocketClient: NSObject, ObservableObject {
     }()
     private var task: URLSessionWebSocketTask?
     private var channelCode: String?
+    private var ownerToken: String?
     private var backoff: TimeInterval = 1
     private let maxBackoff: TimeInterval = 30
     private var heartbeatTimer: Timer?
@@ -97,9 +102,10 @@ final class WebSocketClient: NSObject, ObservableObject {
     // the perfectly healthy *second* connection. That cross-task cancellation is a
     // self-inflicted `ECONNABORTED` ("software caused connection abort") loop that has
     // nothing to do with the network or the server.
-    func connect(code: String) {
+    func connect(code: String, ownerToken: String) {
         if channelCode == code, state != .disconnected { return }
         channelCode = code
+        self.ownerToken = ownerToken
         reconnectWorkItem?.cancel()
         openSocket()
     }
@@ -113,17 +119,20 @@ final class WebSocketClient: NSObject, ObservableObject {
         // code that was just revoked (or issued by a server we've switched away from) the
         // moment connectivity returns.
         channelCode = nil
+        ownerToken = nil
     }
 
     private func openSocket() {
-        guard let channelCode, state != .connecting else { return }
+        guard let channelCode, let ownerToken, state != .connecting else { return }
         guard let url = Self.subscribeURL(code: channelCode) else {
             lastErrorDescription = "Aucun serveur configuré."
             return
         }
         state = .connecting
 
-        let newTask = session.webSocketTask(with: url)
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(ownerToken)", forHTTPHeaderField: "Authorization")
+        let newTask = session.webSocketTask(with: request)
         task = newTask
         newTask.resume()
 
@@ -164,6 +173,12 @@ final class WebSocketClient: NSObject, ObservableObject {
                     self.handle(message)
                     self.listen(on: task) // receive() is one-shot — re-arm for the next frame
                 case .failure(let error):
+                    if let status = (task.response as? HTTPURLResponse)?.statusCode, status == 401 || status == 404 {
+                        print("WebSocketClient: handshake refused (\(status)), channel gone")
+                        self.disconnect()
+                        self.onChannelGone?()
+                        return
+                    }
                     let nsError = error as NSError
                     var detail = "\(nsError.domain) \(nsError.code): \(nsError.localizedDescription)"
                     if let underlying = nsError.userInfo[NSUnderlyingErrorKey] as? NSError {

@@ -11,6 +11,10 @@ function int(name: string, fallback: number): number {
   return n;
 }
 
+function intOrZero(name: string, fallback: number): number {
+  return process.env[name] === "0" ? 0 : int(name, fallback);
+}
+
 function list(name: string): string[] {
   return (process.env[name] ?? "")
     .split(",")
@@ -23,6 +27,11 @@ export const config = {
   dataDir: path.resolve(process.env.DATA_DIR ?? "/data"),
   maxUploadBytes: int("MAX_UPLOAD_BYTES", 8 * 1024 * 1024),
   channelCodeLength: int("CHANNEL_CODE_LENGTH", 10),
+  // Server-side cap on a message's length (the web page stops at 120s on its own).
+  maxDurationSeconds: int("MAX_DURATION_SECONDS", 125),
+  // Number of reverse proxies in front of the app (nginx-proxy = 1), so rate limiting
+  // sees the real client IP from X-Forwarded-For. 0 if the app is exposed directly.
+  trustProxy: intOrZero("TRUST_PROXY", 1),
   // Comma-separated browser origins allowed to call the API cross-origin (e.g. another
   // site embedding the sender page). Empty by default: same-origin only.
   allowedOrigins: new Set(list("ALLOWED_ORIGINS")),

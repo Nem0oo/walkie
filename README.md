@@ -19,7 +19,11 @@ Un seul conteneur Docker sert à la fois l'API et la page web (le Dockerfile cop
 5. Le message est diffusé en direct via WebSocket à l'app iOS, qui le télécharge et le joue automatiquement, même en arrière-plan.
 6. Si l'app était hors ligne, elle rattrape les messages manqués via un appel REST au retour au premier plan.
 
-Le code de canal est le seul "secret" de l'app (pas de compte). Pour couper l'accès aux personnes qui ont le lien actuel (sans redéployer quoi que ce soit), le bouton **"Révoquer le lien"** dans l'app appelle `POST /channels/:code/revoke`, qui invalide définitivement l'ancien code (toute requête dessus renvoie 404, comme un lien inexistant) et ferme sa connexion WebSocket si elle était active ; l'app relance ensuite son flux de pairing normal pour obtenir un nouveau code, qu'il faut repartager.
+Le code de canal ne donne que le droit **d'envoyer** : c'est lui qu'on partage. À la création, le serveur renvoie aussi un **jeton propriétaire** (`owner_token`), gardé par l'app iOS et stocké seulement haché côté serveur. Ce jeton (en-tête `Authorization: Bearer …`) est exigé pour tout le reste : lire l'historique, télécharger l'audio, s'abonner au WebSocket et révoquer. Un proche qui a le lien ne peut donc ni écouter les messages des autres ni couper le canal.
+
+Si le serveur ne reconnaît plus le canal de l'app (révoqué, base recréée, ou canal créé avant l'introduction du jeton : 404/401), l'app abandonne ce canal, en crée un nouveau et affiche un message demandant de repartager le lien.
+
+Pour couper l'accès aux personnes qui ont le lien actuel (sans redéployer quoi que ce soit), le bouton **"Révoquer le lien"** dans l'app appelle `POST /channels/:code/revoke`, qui invalide définitivement l'ancien code (toute requête dessus renvoie 404, comme un lien inexistant) et ferme sa connexion WebSocket si elle était active ; l'app relance ensuite son flux de pairing normal pour obtenir un nouveau code, qu'il faut repartager.
 
 ## Backend + web — build et déploiement
 
@@ -32,6 +36,8 @@ npm install
 npm run build
 npm start               # ou `npm run dev` pour le rechargement à chaud
 ```
+
+Tests (`backend/test/`, `node:test`) : `npm test`. Chaque fichier démarre un vrai serveur sur un port aléatoire avec une base SQLite et un `DATA_DIR` temporaires, et utilise le vrai ffmpeg.
 
 Le serveur sert aussi `web/` en statique une fois buildé dans une image Docker (voir plus bas) ; en dev pur backend sans Docker, copie `web/` dans `backend/dist/static/` si tu veux tester la page d'envoi en local :
 
@@ -75,8 +81,17 @@ Vérifier : `curl https://walkie.gcourtot.fr/health` → `{"status":"ok"}`.
 | `MAX_UPLOAD_BYTES` | `8388608` (8 Mio) | Garde-fou serveur — la vraie limite est côté web (voir ci-dessous) |
 | `CHANNEL_CODE_LENGTH` | `10` | Longueur des codes de canal générés |
 | `PUBLIC_BASE_URL` | `http://localhost:3000` | Base des URLs de blobs renvoyées dans les réponses JSON/WS — mettre `https://walkie.gcourtot.fr` en prod |
+| `ALLOWED_ORIGINS` | vide | Origines navigateur autorisées en CORS, séparées par des virgules. Vide = même origine uniquement |
+| `MAX_DURATION_SECONDS` | `125` | Durée maximale d'un message côté serveur : l'audio est coupé au-delà, même si quelqu'un contourne la page web |
+| `TRUST_PROXY` | `1` | Nombre de reverse proxies devant l'app (nginx-proxy = 1), pour que la limitation de débit voie la vraie IP. `0` si l'app est exposée directement |
 
-Aucun secret dans `.env` : pas d'authentification forte en v1, cohérent avec le modèle "lien de partage classique".
+Aucun secret dans `.env`.
+
+### Protections contre les abus
+
+- Limitation de débit par IP : 10 créations de canal par heure, 30 envois de message par 10 minutes (réponse 429).
+- Au plus 2 transcodages ffmpeg simultanés, 10 en file d'attente au-delà (réponse 503), et chaque transcodage est tué après 60 s.
+- Le conteneur démarre en root uniquement pour reprendre la propriété de `/data` (`docker-entrypoint.sh`), puis lance Node, et donc ffmpeg, sous l'utilisateur `node`.
 
 ### Contrainte importante : proxy nginx-proxy existant
 
@@ -129,6 +144,7 @@ Deux workflows GitHub Actions indépendants, déclenchés séparément via `path
 ### `.github/workflows/docker-build.yml` — image backend
 
 - Sur chaque push/PR touchant `backend/`, `web/`, `Dockerfile` (tout sauf `ios/**` et les `.md`) : build de l'image (`docker/build-push-action`).
+- Sur les PR uniquement : un job `test` (Node 20) lance le typecheck (`tsc -p test/tsconfig.json`) puis `npm test` dans `backend/`. Pour bloquer la fusion quand les tests échouent, coche ce job (« Backend tests ») comme check requis dans `Settings → Branches` (règle de protection de `main`).
 - Push vers Docker Hub (`nem0oo/walkie`) uniquement sur `push` (jamais sur PR) : tag `latest` sur `main`, tags sémantiques (`1.2.3`, `1.2`) sur un tag git `v*`.
 - Secrets requis dans les paramètres du repo GitHub (`Settings → Secrets and variables → Actions`) : `DOCKERHUB_USERNAME`, `DOCKERHUB_TOKEN` (un [access token](https://hub.docker.com/settings/security) Docker Hub, pas ton mot de passe).
 - Déclencher une release versionnée : `git tag v1.0.0 && git push origin v1.0.0`.
@@ -146,4 +162,3 @@ Préfixes de tag distincts (`v*` pour le backend, `ios-v*` pour l'app) car ce re
 ## Hors scope v1 (assumé)
 
 - Pas de purge/rétention des blobs et lignes SQLite — `/data` croît sans limite. Acceptable vu le volume attendu (quelques utilisateurs, ~360 Ko/message max).
-- Pas d'historique des messages écoutés dans l'UI iOS.
